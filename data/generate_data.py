@@ -1,45 +1,24 @@
-"""
-Data Generator – tạo 3 file JSON cho 3 Node Agent.
-
-Chạy một lần:
-  python data/generate_data.py
-
-Kết quả:
-  data/node1_data.json  – machineID  1–33   (3 241 records)
-  data/node2_data.json  – machineID 34–66   (3 342 records)
-  data/node3_data.json  – machineID 67–100  (3 417 records)
-  Tổng: 10 000 records, stepID 1–10 000 (toàn cục, không trùng)
-
-Schema mỗi record:
-  { "stepID": <int>, "machineID": <int>, "status": "pending" }
-"""
 
 import json
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Cấu hình phân vùng
-# ---------------------------------------------------------------------------
 
-# (machine_start, machine_end, total_records)
 NODE_SPECS = [
-    (1,   33,  3_241),   # node1
-    (34,  66,  3_342),   # node2
-    (67, 100,  3_417),   # node3
+    (1,   33,  3_241),
+    (34,  66,  3_342),
+    (67, 100,  3_417),
 ]
 
 OUTPUT_DIR = Path(__file__).parent
 
 
 def generate() -> None:
-    step_id = 1   # stepID toàn cục, tăng dần liên tục qua cả 3 node
+    step_id = 1
 
     for node_idx, (m_start, m_end, total) in enumerate(NODE_SPECS, start=1):
         machines = list(range(m_start, m_end + 1))
         n_machines = len(machines)
 
-        # Phân phối records đều nhất có thể:
-        # base steps mỗi machine, remainder machine đầu được thêm 1
         base      = total // n_machines
         remainder = total % n_machines
 
@@ -54,7 +33,6 @@ def generate() -> None:
                 })
                 step_id += 1
 
-        # Sanity check
         assert len(records) == total, \
             f"node{node_idx}: expected {total}, got {len(records)}"
 

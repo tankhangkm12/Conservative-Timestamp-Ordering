@@ -1,16 +1,3 @@
-"""
-Streamlit Dashboard – CTO vs BTO, điều khiển benchmark hoàn toàn bằng tham số.
-
-Chạy:
-  uv run streamlit run analysis/dashboard.py
-
-Mọi thứ điều khiển từ đây (không dùng dòng lệnh, không còn scenario cố định):
-  - Chọn số node, bật/tắt từng node, đặt delay riêng cho mỗi node.
-  - Chọn kích thước dataset (chia đều cho các node), số transaction, concurrency,
-    mức tranh chấp (contention), số hot step.
-  - Bấm "Chạy Benchmark" → tự khởi động Scheduler + Node Agent + Generator.
-  - Xem kết quả + log của từng tiến trình con ngay trên trang.
-"""
 
 import sys
 from pathlib import Path
@@ -32,11 +19,6 @@ import json  # noqa: E402
 MODE_LABELS = {"both": "Cả hai (CTO + BTO)", "cto": "Chỉ CTO", "bto": "Chỉ BTO"}
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def load_result() -> dict | None:
     if not RESULT_PATH.exists():
         return None
@@ -53,18 +35,10 @@ def latencies(transactions: list[dict]) -> list[float]:
     ]
 
 
-# ---------------------------------------------------------------------------
-# Layout
-# ---------------------------------------------------------------------------
-
 st.set_page_config(page_title="CTO vs BTO – Đề tài #27", page_icon="📊", layout="wide")
 st.title("CTO vs BTO – Phân tích thực nghiệm Đề tài #27")
 st.caption("Conservative Timestamp Ordering · Automated Manufacturing · Đỗ Thanh Tân – N23DCCN122")
 
-
-# ---------------------------------------------------------------------------
-# Sidebar – điều khiển benchmark
-# ---------------------------------------------------------------------------
 
 with st.sidebar:
     st.header("⚙️ Điều khiển Benchmark")
@@ -150,10 +124,6 @@ with st.sidebar:
         st.rerun()
 
 
-# ---------------------------------------------------------------------------
-# Kết quả
-# ---------------------------------------------------------------------------
-
 data = load_result()
 
 if data is None:
@@ -164,7 +134,6 @@ else:
     cto_data, bto_data = data["cto"], data["bto"]
     cto_lat, bto_lat = latencies(cto_data.get("transactions", [])), latencies(bto_data.get("transactions", []))
 
-    # Tham số đã dùng
     if params:
         st.subheader("Tham số phiên chạy")
         pc = st.columns(6)
@@ -198,7 +167,6 @@ else:
 
     st.divider()
 
-    # Biểu đồ
     cc1, cc2 = st.columns(2)
     with cc1:
         fig = px.bar(
@@ -240,7 +208,6 @@ else:
         fig.update_layout(height=400)
         st.plotly_chart(fig, width="stretch")
 
-    # Kết luận tự động
     st.divider()
     st.subheader("Kết luận")
     cto_abort, bto_abort = cto_data["abort_rate"], bto_data["abort_rate"]
@@ -258,10 +225,6 @@ else:
     elif diff < 0:
         st.markdown(f"⏱ CTO nhanh hơn BTO **{abs(diff)} ms** (BTO tốn thời gian abort/restart).")
 
-
-# ---------------------------------------------------------------------------
-# Log tiến trình con
-# ---------------------------------------------------------------------------
 
 st.divider()
 with st.expander("🪵 Log tiến trình con (lần chạy gần nhất)", expanded=False):

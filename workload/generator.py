@@ -1,21 +1,3 @@
-"""
-Workload Generator – sinh transaction đồng thời gửi đến Scheduler.
-
-Tất cả tham số được truyền vào (thường từ Streamlit qua orchestrator), không còn
-khái niệm "scenario" cố định. Phân vùng dữ liệu được tính động theo số node:
-
-    block_size       = ceil(dataset_size / num_nodes)
-    node(step_id)    = (step_id - 1) // block_size + 1     (kẹp trong 1..num_nodes)
-    machine_id       = node(step_id)                       (machineID == số node)
-
-Transaction chỉ nhắm vào các node đang BẬT (active). Mức tranh chấp (contention)
-điều khiển tỉ lệ transaction dồn vào một nhóm nhỏ "hot steps" – nguyên nhân khiến
-BTO phải abort/restart, trong khi CTO vẫn giữ abort = 0.
-
-Chạy độc lập (chủ yếu để debug):
-  uv run python workload/generator.py --num-nodes 3 --dataset-size 3000 \
-      --num-transactions 1000 --contention 0.5 --hot-steps 10
-"""
 
 from __future__ import annotations
 
@@ -36,35 +18,22 @@ logger = logging.getLogger("workload.generator")
 STATUSES = ["running", "done", "failed"]
 
 
-# ---------------------------------------------------------------------------
-# Phân vùng động
-# ---------------------------------------------------------------------------
-
-
 def block_size_of(dataset_size: int, num_nodes: int) -> int:
-    """Số step mỗi node nắm giữ (chia đều, node cuối có thể ít hơn)."""
     return max(1, math.ceil(dataset_size / max(1, num_nodes)))
 
 
 def node_of_step(step_id: int, dataset_size: int, num_nodes: int) -> int:
-    """Trả về node id (1..num_nodes) sở hữu step_id."""
     bs = block_size_of(dataset_size, num_nodes)
     node = (step_id - 1) // bs + 1
     return min(node, num_nodes)
 
 
 def active_steps(dataset_size: int, num_nodes: int, active: list[int]) -> list[int]:
-    """Danh sách step_id thuộc các node đang bật."""
     active_set = set(active)
     return [
         s for s in range(1, dataset_size + 1)
         if node_of_step(s, dataset_size, num_nodes) in active_set
     ]
-
-
-# ---------------------------------------------------------------------------
-# Sinh transaction
-# ---------------------------------------------------------------------------
 
 
 def build_transactions(
@@ -77,12 +46,6 @@ def build_transactions(
     hot_steps: int,
     mode: str,
 ) -> list[dict]:
-    """
-    Tạo danh sách message ``submit``.
-
-    contention ∈ [0,1]: xác suất một transaction nhắm vào "hot set".
-    hot_steps: số step trong hot set (lấy từ đầu danh sách active steps).
-    """
     steps = active_steps(dataset_size, num_nodes, active)
     if not steps:
         logger.error("Không có step nào thuộc node đang bật – kiểm tra cấu hình.")
@@ -101,9 +64,6 @@ def build_transactions(
         txs.append({
             "type": "submit",
             "mode": mode,
-            # Timestamp gán tại CLIENT theo thứ tự tạo (logic clock tăng đều).
-            # Gửi theo thứ tự xáo trộn → BTO thấy tx "đến trễ" và abort, còn CTO
-            # sắp lại trong wait_queue nên abort = 0.
             "timestamp": i + 1,
             "step_id": step_id,
             "machine_id": machine_id,
@@ -111,11 +71,6 @@ def build_transactions(
             "data": {"status": random.choice(STATUSES)},
         })
     return txs
-
-
-# ---------------------------------------------------------------------------
-# Gửi
-# ---------------------------------------------------------------------------
 
 
 async def _send(ws, tx: dict, sem: asyncio.Semaphore) -> None:
@@ -154,7 +109,8 @@ async def run_generator(args: argparse.Namespace) -> None:
         logger.info("Đã kết nối – gửi %d transaction...", len(txs))
 
         send_order = list(txs)
-        random.shuffle(send_order)   # mô phỏng độ trễ mạng → tạo late-arrival
+        # Xáo trộn thứ tự gửi để tạo late-arrival cho BTO.
+        random.shuffle(send_order)
         await asyncio.gather(*(_send(ws, tx, sem) for tx in send_order))
 
         elapsed = time.perf_counter() - t_start
@@ -182,11 +138,6 @@ async def run_generator(args: argparse.Namespace) -> None:
             pass
 
     logger.info("Generator hoàn tất sau %.2fs.", time.perf_counter() - t_start)
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

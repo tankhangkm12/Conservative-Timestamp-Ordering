@@ -1,16 +1,3 @@
-"""
-Orchestrator – chạy toàn bộ benchmark CTO/BTO trong MỘT lệnh, tham số hoá hoàn toàn.
-
-Được Streamlit (analysis/dashboard.py) gọi. Quy trình:
-    1. Sinh dataset chia đều cho N node (data/generated/node{i}_data.json).
-    2. Khởi động Scheduler (chờ mở cổng WebSocket).
-    3. Khởi động các Node Agent ĐANG BẬT (mỗi node 1 process, có thể đặt delay riêng).
-    4. Chạy Workload Generator với tham số người dùng nhập.
-    5. Chờ Scheduler tự lưu logs/result.json và thoát.
-    6. Dọn dẹp tiến trình con, trả về dict kết quả.
-
-Log từng tiến trình con ghi ra logs/runtime/*.log (Streamlit đọc lại để hiển thị).
-"""
 
 from __future__ import annotations
 
@@ -40,18 +27,7 @@ STATUSES = ["pending"]
 EventFn = Callable[[str], None]
 
 
-# ---------------------------------------------------------------------------
-# Sinh dataset chia đều cho N node
-# ---------------------------------------------------------------------------
-
-
 def generate_dataset(num_nodes: int, dataset_size: int, out_dir: Path) -> dict[int, Path]:
-    """
-    Sinh {dataset_size} step chia đều cho {num_nodes} node.
-
-    Node i (1..N) nắm các step trong block liên tục; machineID = i. Trả về dict
-    {node_id: đường dẫn file} cho từng node.
-    """
     out_dir.mkdir(parents=True, exist_ok=True)
     block = max(1, math.ceil(dataset_size / max(1, num_nodes)))
 
@@ -67,11 +43,6 @@ def generate_dataset(num_nodes: int, dataset_size: int, out_dir: Path) -> dict[i
         path.write_text(json.dumps(records, ensure_ascii=False), encoding="utf-8")
         paths[node_id] = path
     return paths
-
-
-# ---------------------------------------------------------------------------
-# Tiện ích tiến trình
-# ---------------------------------------------------------------------------
 
 
 def _python() -> str:
@@ -105,11 +76,9 @@ def _terminate_all(procs: dict[str, tuple[subprocess.Popen, object]]) -> None:
 
 
 def read_runtime_logs() -> dict[str, str]:
-    """Đọc toàn bộ log tiến trình con của lần chạy gần nhất (cho Streamlit hiển thị)."""
     logs: dict[str, str] = {}
     if not RUNTIME_DIR.exists():
         return logs
-    # scheduler trước, rồi node theo số, generator cuối
     def sort_key(p: Path):
         n = p.stem
         order = {"scheduler": 0, "generator": 9}.get(n, 5)
@@ -119,11 +88,6 @@ def read_runtime_logs() -> dict[str, str]:
         with contextlib.suppress(Exception):
             logs[path.stem] = path.read_text(encoding="utf-8", errors="replace")
     return logs
-
-
-# ---------------------------------------------------------------------------
-# Chạy benchmark
-# ---------------------------------------------------------------------------
 
 
 def run_benchmark(
@@ -142,7 +106,6 @@ def run_benchmark(
     timeout: float = 180.0,
     on_event: EventFn | None = None,
 ) -> dict | None:
-    """Chạy một phiên benchmark đầy đủ, trả về nội dung result.json (dict) hoặc None."""
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 
     active = sorted(active_nodes) if active_nodes else list(range(1, num_nodes + 1))
@@ -153,7 +116,6 @@ def run_benchmark(
         if on_event is not None:
             on_event(msg)
 
-    # Xoá log cũ để hiển thị đúng lần chạy này
     for old in RUNTIME_DIR.glob("*.log"):
         with contextlib.suppress(Exception):
             old.unlink()
@@ -182,11 +144,9 @@ def run_benchmark(
     }
 
     try:
-        # 1. Dataset
         emit(f"🗂️  Sinh dataset {dataset_size} step chia đều cho {num_nodes} node...")
         data_paths = generate_dataset(num_nodes, dataset_size, DATA_DIR)
 
-        # 2. Scheduler
         emit("🚀 Khởi động Scheduler...")
         sched_env = {
             **base_env,
@@ -203,7 +163,6 @@ def run_benchmark(
             return None
         emit(f"✅ Scheduler đang lắng nghe ws://localhost:{port}")
 
-        # 3. Node Agents (chỉ node đang bật)
         emit(f"🖥️  Khởi động {len(active)} node đang bật: {active}")
         for nid in active:
             delay = float(delays.get(nid, 0) or 0)
@@ -219,9 +178,8 @@ def run_benchmark(
             spawn(f"node{nid}", [_python(), str(PROJECT_ROOT / "node_agent" / "agent.py")], node_env)
             if delay > 0:
                 emit(f"   • node{nid}: delay {delay:.0f}ms/tx")
-        time.sleep(2.0)   # chờ register
+        time.sleep(2.0)
 
-        # 4. Generator
         emit(f"📤 Gửi {num_transactions} transaction (mode={mode}, contention={contention:.0%})...")
         gen_args = [
             _python(), str(PROJECT_ROOT / "workload" / "generator.py"),
@@ -240,7 +198,6 @@ def run_benchmark(
             gen_args += ["--seed", str(seed)]
         spawn("generator", gen_args, base_env)
 
-        # 5. Chờ Scheduler tự kết thúc
         emit("⏳ Đang xử lý transaction & tính latency...")
         try:
             procs["scheduler"][0].wait(timeout=timeout)
@@ -250,7 +207,6 @@ def run_benchmark(
     finally:
         _terminate_all(procs)
 
-    # 6. Đọc kết quả
     result_path = LOGS_DIR / "result.json"
     if result_path.exists():
         try:
@@ -260,11 +216,6 @@ def run_benchmark(
             return None
     emit("❌ Không tìm thấy result.json.")
     return None
-
-
-# ---------------------------------------------------------------------------
-# CLI (debug)
-# ---------------------------------------------------------------------------
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
